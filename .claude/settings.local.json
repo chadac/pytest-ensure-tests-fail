@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "mcp__emacs__lock_file(*)",
+      "mcp__emacs__save_buffer(*)",
+      "Bash(rm:*)",
+      "Bash(uv:*)",
+      "Bash(git:*)"
+    ]
+  }
+}
