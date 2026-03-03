@@ -1,14 +1,17 @@
 # pytest-ensure-tests-fail
 
-A pytest plugin that ensures your new tests actually catch bugs by verifying they fail on the upstream branch.
+A pytest plugin that ensures your new tests actually catch bugs by
+verifying they fail on the upstream branch.
 
 ## Why?
 
-When you write tests as part of a bugfix PR, those tests should:
-1. **Pass** on your bugfix branch (proving the fix works)
-2. **Fail** on the upstream branch (proving the tests catch the bug)
+When you write news tests, generally those tests should **pass** on
+your branch but **fail** on the upstream target. Otherwise, it's
+likely not capturing what you think it is!
 
-If a test passes on both branches, it's not actually testing the bug you fixed!
+This plugin is fairly simple. It detects your upstream, then
+selectively runs the tests you've added or modified on the
+upstream. It fails if any of those tests succeed.
 
 ## Installation
 
