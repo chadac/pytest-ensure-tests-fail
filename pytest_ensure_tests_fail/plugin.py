@@ -3,9 +3,11 @@
 When running with --ensure-tests-fail, this plugin:
 1. Diffs the current branch against the upstream branch
 2. Identifies newly added test functions/methods
-3. Runs only those new tests
-4. Verifies they pass on the current branch
-5. Creates a worktree of upstream and verifies tests fail there
+3. Creates a worktree of upstream and verifies the new tests FAIL there
+
+This plugin does NOT run tests on the current branch - it assumes you've
+already verified your tests pass locally. It only checks that your new
+tests would fail on upstream (proving they catch an actual bug).
 """
 
 import shutil
@@ -28,7 +30,7 @@ def pytest_addoption(parser):
         "--ensure-tests-fail",
         action="store_true",
         default=False,
-        help="Run only new tests and verify they fail on upstream branch",
+        help="Verify new tests fail on upstream branch (does not run local tests)",
     )
     group.addoption(
         "--upstream-branch",
@@ -52,7 +54,7 @@ def pytest_sessionstart(session):
 
 
 def pytest_collection_modifyitems(session, config, items):
-    """Filter to only run new tests."""
+    """Skip all local tests - we only run on upstream."""
     if _plugin_instance:
         _plugin_instance.pytest_collection_modifyitems(session, config, items)
 
@@ -64,7 +66,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 class EnsureTestsFailPlugin:
-    """Plugin that ensures new tests actually catch bugs."""
+    """Plugin that ensures new tests actually catch bugs by failing on upstream."""
 
     def __init__(self, config):
         self.config = config
@@ -197,7 +199,7 @@ class EnsureTestsFailPlugin:
 
         if not self.new_tests:
             print("\nNo new tests found in diff!")
-            print("This plugin only runs newly added test functions.")
+            print("This plugin only checks newly added test functions.")
             print(f"{'='*60}\n")
         else:
             print(f"\nFound {len(self.new_tests)} new test(s):")
@@ -206,53 +208,35 @@ class EnsureTestsFailPlugin:
             print(f"{'='*60}\n")
 
     def pytest_collection_modifyitems(self, session, config, items):
-        """Filter to only run new tests."""
-        if not self.new_tests:
-            config.hook.pytest_deselected(items=items[:])
-            items[:] = []
-            return
-
-        selected = []
-        deselected = []
-
-        for item in items:
-            node_id = item.nodeid
-            base_node_id = re.sub(r"\[.*\]$", "", node_id)
-
-            if base_node_id in self.new_tests or node_id in self.new_tests:
-                selected.append(item)
-            else:
-                deselected.append(item)
-
-        if deselected:
-            config.hook.pytest_deselected(items=deselected)
-
-        items[:] = selected
+        """Skip all local test execution - we only verify on upstream."""
+        # Deselect all tests - we don't run anything locally
+        config.hook.pytest_deselected(items=items[:])
+        items[:] = []
 
     def pytest_sessionfinish(self, session, exitstatus):
-        """Called at the end of the test session."""
+        """Run the upstream verification after collection."""
         if not self.new_tests:
+            # No new tests found - exit with 0 (nothing to verify)
+            session.exitstatus = 0
             return
 
-        if exitstatus == 0:
-            print(f"\n{'='*60}")
-            print("Phase 1 PASSED: All new tests pass on current branch")
-            print(f"{'='*60}")
-            print("\nPhase 2: Checking if tests fail on upstream...")
-            print("(This verifies the tests actually catch the bug)")
+        # Run the upstream verification
+        print("Verifying new tests fail on upstream...")
+        print("(This confirms your tests catch the bug that was fixed)")
+        
+        success = self._verify_tests_fail_on_upstream()
+        
+        # Set exit status based on verification result
+        # Override pytest's "no tests collected" exit code
+        session.exitstatus = 0 if success else 1
 
-            self._verify_tests_fail_on_upstream(session)
-        else:
-            print(f"\n{'='*60}")
-            print("FAILED: New tests don't pass on current branch!")
-            print("Fix your tests before verifying they catch bugs.")
-            print(f"{'='*60}\n")
-
-    def _verify_tests_fail_on_upstream(self, session):
+    def _verify_tests_fail_on_upstream(self) -> bool:
         """Verify that new tests fail on the upstream branch.
 
         Uses git worktree to create a clean checkout of upstream,
         preserving the current working directory state completely.
+        
+        Returns True if verification passed (tests fail on upstream).
         """
         assert self.upstream_branch is not None
 
@@ -277,7 +261,7 @@ class EnsureTestsFailPlugin:
             )
             if result.returncode != 0:
                 print(f"Failed to create worktree: {result.stderr}")
-                return
+                return False
 
             # Copy test files from current branch to the worktree
             # This allows us to run the new tests against the old code
@@ -297,7 +281,7 @@ class EnsureTestsFailPlugin:
             test_args = [node_id.split("::")[0] + "::" + "::".join(node_id.split("::")[1:])
                         for node_id in self.new_tests]
 
-            print(f"Running tests in upstream worktree...")
+            print("Running tests in upstream worktree...")
             result = subprocess.run(
                 [sys.executable, "-m", "pytest", "-v", "--tb=short"] + test_args,
                 capture_output=True,
@@ -307,7 +291,7 @@ class EnsureTestsFailPlugin:
 
             if result.returncode == 0:
                 print(f"\n{'='*60}")
-                print("WARNING: Tests PASS on upstream branch!")
+                print("FAILED: Tests PASS on upstream branch!")
                 print("This means your tests don't actually catch the bug.")
                 print("The tests should fail on upstream and pass on your branch.")
                 print(f"{'='*60}")
@@ -315,7 +299,7 @@ class EnsureTestsFailPlugin:
                 print(result.stdout)
                 if result.stderr:
                     print(result.stderr)
-                session.exitstatus = 1
+                return False
             elif result.returncode == 1:
                 print(f"\n{'='*60}")
                 print("SUCCESS! Tests correctly FAIL on upstream branch.")
@@ -325,12 +309,14 @@ class EnsureTestsFailPlugin:
                 print(result.stdout)
                 if result.stderr:
                     print(result.stderr)
+                return True
             elif result.returncode == 4:
                 print(f"\n{'='*60}")
                 print("SUCCESS! Tests don't exist on upstream branch.")
                 print("(New test files are not present in upstream)")
                 print("This is valid - your tests are brand new.")
                 print(f"{'='*60}\n")
+                return True
             elif result.returncode == 5:
                 print(f"\n{'='*60}")
                 print("Note: No tests were collected on upstream.")
@@ -340,6 +326,7 @@ class EnsureTestsFailPlugin:
                 if result.stderr:
                     print(result.stderr)
                 print(f"{'='*60}\n")
+                return True  # Consider this a pass - tests don't exist
             else:
                 print(f"\n{'='*60}")
                 print(f"Note: pytest exited with code {result.returncode} on upstream")
@@ -349,6 +336,7 @@ class EnsureTestsFailPlugin:
                 if result.stderr:
                     print(result.stderr)
                 print(f"{'='*60}\n")
+                return False
 
         finally:
             # Clean up the worktree
