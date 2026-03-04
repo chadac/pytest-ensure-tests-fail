@@ -34,9 +34,9 @@ pytest --ensure-tests-fail --upstream-branch=origin/main
 1. Diffs your current branch against the upstream branch
 2. Identifies newly added test functions/methods from the diff
 3. Runs only those new tests on your current branch
-4. If they pass, checks out the upstream branch and runs them again
-5. Verifies the tests fail on upstream (proving they catch the bug)
-
+4. If they pass, creates a git worktree with the upstream code
+5. Copies the new test files into the worktree and runs them
+6. Verifies the tests fail on upstream (proving they catch the bug)
 ## Example output
 
 ```
