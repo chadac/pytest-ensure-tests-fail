@@ -16,13 +16,7 @@ upstream. It fails if any of those tests succeed.
 ## Installation
 
 ```bash
-pip install pytest-ensure-tests-fail
-```
-
-Or with uv:
-
-```bash
-uv add pytest-ensure-tests-fail
+pip install 'git+ssh://git@github.com/chadac/pytest-ensure-tests-fail.git'
 ```
 
 ## Usage
