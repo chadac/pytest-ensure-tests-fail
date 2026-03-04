@@ -37,6 +37,7 @@ pytest --ensure-tests-fail --upstream-branch=origin/main
 4. If they pass, creates a git worktree with the upstream code
 5. Copies the new test files into the worktree and runs them
 6. Verifies the tests fail on upstream (proving they catch the bug)
+
 ## Example output
 
 ```
@@ -65,7 +66,3 @@ SUCCESS! Tests correctly fail on upstream branch.
 This confirms your tests catch the bug that was fixed.
 ============================================================
 ```
-
-## License
-
-MIT
